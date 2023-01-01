@@ -5,11 +5,12 @@ use std::error::Error;
 /// Ping a peer
 #[derive(Parser)]
 struct Args {
-    /// Local port to listen on
-    #[arg(short, long, default_value_t = 58002)]
-    port: u32,
+    /// Local interface to listen on
+    #[arg(short, long, default_value = "/ip4/0.0.0.0/tcp/0")]
+    local: String,
 
-    /// Remote peer multiaddr to dial
+    /// Remote peer multiaddr to ping
+    /// e.g. /ip4/192.168.64.3/tcp/58002
     #[arg(short, long)]
     remote: Option<String>,
 }
@@ -17,10 +18,6 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
-    let port = args.port;
 
-    let local_addr = format!("/ip4/0.0.0.0/tcp/{port:?}");
-    let remote_addr = args.remote;
-
-    peer_ping(local_addr, remote_addr).await
+    peer_ping(args.local, args.remote).await
 }

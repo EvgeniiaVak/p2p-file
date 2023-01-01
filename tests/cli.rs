@@ -1,21 +1,49 @@
-/// These tests assume there is a running instance
-/// on the local network
-const TEST_PEER: &str = "/ip4/192.168.64.3/tcp/58002";
-
 use assert_cmd::prelude::*;
-use rexpect::session::spawn_command;
+use rexpect::session::{spawn_command, PtySession};
+use std::error::Error;
 use std::process::Command;
 
-#[test]
-fn ping() -> Result<(), Box<dyn std::error::Error>> {
-    let mut cmd = Command::cargo_bin(env!("CARGO_PKG_NAME"))?;
-    cmd.arg("-p").arg("58003");
-    cmd.arg("-r").arg(TEST_PEER);
-    let mut p = spawn_command(cmd, Some(30000))?;
+struct Peer {
+    session: PtySession,
+    address: String,
+}
 
-    p.exp_string("Listening on")?;
-    p.exp_string("Ping")?;
-    p.exp_string("Pong")?;
+impl Peer {
+    fn launch(remote: Option<String>) -> Result<Peer, Box<dyn Error>> {
+        let mut cmd = Command::cargo_bin(env!("CARGO_PKG_NAME"))?;
+        if let Some(r) = remote {
+            cmd.arg("-r").arg(r);
+        }
+        let mut session = spawn_command(cmd, Some(30000))?;
+
+        session.exp_string("PeerId")?;
+        session.exp_string("Listening on")?;
+        let mut address = session.exp_string("Listening on")?;
+        address = address.replace("\"", "");
+        Ok(Peer { session, address })
+    }
+}
+
+#[test]
+fn ping() -> Result<(), Box<dyn Error>> {
+    let listening_peer = Peer::launch(None)?;
+    let mut pinning_peer = Peer::launch(Some(listening_peer.address))?;
+
+    pinning_peer.session.exp_string("Ping")?;
+    pinning_peer.session.exp_string("Pong")?;
+
+    Ok(())
+}
+
+#[test]
+fn trim_remote() -> Result<(), Box<dyn Error>> {
+    let listening_peer = Peer::launch(None)?;
+
+    let addr = format!("\n{} ", listening_peer.address);
+    let mut pinning_peer = Peer::launch(Some(addr))?;
+
+    pinning_peer.session.exp_string("Ping")?;
+    pinning_peer.session.exp_string("Pong")?;
 
     Ok(())
 }

@@ -16,7 +16,7 @@ pub async fn peer_ping(
     swarm.listen_on(local_addr.parse()?)?;
 
     if let Some(addr) = remote_addr {
-        let remote: Multiaddr = addr.parse()?;
+        let remote: Multiaddr = addr.trim().parse()?;
         swarm.dial(remote)?;
         println!("Dialed {addr}")
     }
