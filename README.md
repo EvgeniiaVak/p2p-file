@@ -6,7 +6,8 @@ and [tokio](https://tokio.rs/tokio/tutorial).
 ## Roadmap
 
 - [x] ping a peer
-- [ ] itegration tests
+- [x] itegration tests
 - [ ] send/receive a file
 - [ ] progress bar
 - [ ] encryption
+- [ ] [hole punching](https://docs.rs/libp2p/0.50.0/libp2p/tutorials/hole_punching/index.html)
