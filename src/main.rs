@@ -1,5 +1,5 @@
 use clap::Parser;
-use p2p_file::peer_ping;
+use p2p_file::run;
 use std::error::Error;
 
 /// Ping a peer
@@ -19,5 +19,5 @@ struct Args {
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
-    peer_ping(args.local, args.remote).await
+    run(args.local, args.remote).await
 }
