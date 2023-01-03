@@ -19,37 +19,70 @@ pub async fn run(local_addr: String, remote_addr: Option<String>) -> Result<(), 
         println!("Dialed {addr}");
     }
 
-    tokio::select! {
-        _ = handle_user_input() => Ok(()),
-        _ = handle_network_events(&mut swarm) => Ok(()),
+    loop {
+        tokio::select! {
+            _ = handle_user_input() => {},
+            _ = handle_network_events(&mut swarm) => {},
+        }
     }
 }
 
 async fn handle_user_input() -> Result<(), Box<dyn Error>> {
     let mut reader = BufReader::new(stdin());
 
-    loop {
-        let mut buffer = String::new();
-        let bytes = reader.read_line(&mut buffer).await?;
-        let trimmed_input = buffer.trim();
+    let mut buffer = String::new();
+    let bytes = reader.read_line(&mut buffer).await?;
+    let trimmed_input = buffer.trim();
 
-        println!("Read [{bytes}] bytes");
-        println!("Read [{trimmed_input}]");
-    }
+    println!("Read [{bytes}] bytes");
+    println!("Read [{trimmed_input}]");
+
+    Ok(())
 }
 
 async fn handle_network_events(swarm: &mut Swarm<Behaviour>) -> Result<(), Box<dyn Error>> {
-    loop {
-        match swarm.select_next_some().await {
-            SwarmEvent::NewListenAddr { address, .. } => println!("Listening on {address:?}"),
-            SwarmEvent::Behaviour(event) => println!("{event:?}"),
-            _ => {}
+    match swarm.select_next_some().await {
+        SwarmEvent::Behaviour(event) => {
+            println!("{event:?}");
+            Ok(())
         }
+
+        SwarmEvent::NewListenAddr { address, .. } => {
+            println!("Listening on {address:?}");
+            Ok(())
+        }
+
+        SwarmEvent::IncomingConnection {
+            local_addr,
+            send_back_addr,
+        } => {
+            println!("Incoming connection from {send_back_addr} at {local_addr}");
+            Ok(())
+        }
+
+        SwarmEvent::ConnectionEstablished {
+            peer_id,
+            endpoint,
+            num_established,
+            concurrent_dial_errors,
+        } => {
+            println!(
+                "Connection established with {peer_id} at {endpoint:?} ({num_established} connections)"
+
+            );
+            if let Some(errs) = concurrent_dial_errors {
+                println!(" ({errs:?} concurrent dial errors)");
+            }
+            Ok(())
+        }
+
+        other => unimplemented!("Unhandled event: [{other:?}]"),
     }
 }
 
 #[derive(NetworkBehaviour, Default)]
 struct Behaviour {
+    // TODO: substitute keeping alive with something more sensible
     keep_alive: keep_alive::Behaviour,
     ping: ping::Behaviour,
 }
