@@ -16,14 +16,12 @@ pub async fn run(local_addr: String, remote_addr: Option<String>) -> Result<(), 
     if let Some(addr) = remote_addr {
         let remote: Multiaddr = addr.trim().parse()?;
         swarm.dial(remote)?;
-        println!("Dialed {addr}")
+        println!("Dialed {addr}");
     }
 
-    let res = tokio::join!(handle_user_input(), handle_network_events(&mut swarm));
-    if let (Ok(_), Ok(_)) = res {
-        Ok(())
-    } else {
-        Err(format!("Result: {res:?}").into())
+    tokio::select! {
+        _ = handle_user_input() => Ok(()),
+        _ = handle_network_events(&mut swarm) => Ok(()),
     }
 }
 
