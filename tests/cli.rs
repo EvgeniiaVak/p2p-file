@@ -13,7 +13,6 @@ impl Peer {
         let cmd = Command::cargo_bin(env!("CARGO_PKG_NAME"))?;
         let mut session = spawn_command(cmd, Some(30000))?;
 
-        session.exp_string("PeerId")?;
         session.exp_string("Listening on")?;
         let mut address = session.exp_string("Listening on")?;
         address = address.replace("\"", "").trim().to_string();
