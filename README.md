@@ -10,4 +10,6 @@ and [tokio](https://tokio.rs/tokio/tutorial).
 - [ ] send/receive a file
 - [ ] progress bar
 - [ ] encryption
+- [ ] authentication
 - [ ] [hole punching](https://docs.rs/libp2p/0.50.0/libp2p/tutorials/hole_punching/index.html)
+- [ ] peer discovery
