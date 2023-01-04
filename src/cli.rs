@@ -76,3 +76,7 @@ impl CommandParser {
         println!("  info");
     }
 }
+
+pub fn show_output(output: impl std::fmt::Display) {
+    println!("{output}");
+}

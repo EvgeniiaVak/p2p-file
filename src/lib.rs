@@ -20,8 +20,13 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
 
     loop {
         select! {
-            command = commands.next_command() => { node.handle_command(command?)? },
-            _ = node.handle_event() => {},
+            command = commands.next_command() => {
+                let output = node.handle_command(command?)?;
+                if let Some(output) = output {
+                    cli::show_output(output);
+                }
+            },
+            output = node.handle_event() => { cli::show_output(output?) },
         }
     }
 }
