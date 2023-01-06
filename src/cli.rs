@@ -28,14 +28,14 @@ impl CommandParser {
 
     fn parse(input: String) -> Option<Command> {
         match input.trim() {
-            ping_command if input.starts_with("ping") => {
+            ping_command if input.starts_with("connect") => {
                 let remote = ping_command
                     .split_whitespace()
                     .nth(1)
                     .expect("Missing remote address to ping.");
 
                 match remote.parse() {
-                    Ok(remote) => Some(Command::Ping { remote }),
+                    Ok(remote) => Some(Command::Connect { remote }),
                     Err(_) => {
                         println!("Could not parse remote address: [{remote}]");
                         Self::print_help();
@@ -43,16 +43,16 @@ impl CommandParser {
                     }
                 }
             }
-            send_command if input.starts_with("send") => {
-                let mut split = send_command.split_whitespace();
-                split.next();
-                let remote = split
-                    .next()
-                    .expect("Missing remote address to send message to.");
-                let remote = remote.parse().expect("Could not parse remote address");
-                let message = split.next().expect("Missing message to send.").to_string();
-                return Some(Command::Send { remote, message });
-            }
+            send_command if input.starts_with("send") => match send_command.split_once(" ") {
+                Some((_, message)) => Some(Command::Send {
+                    message: message.to_string(),
+                }),
+                None => {
+                    println!("Unexpected command.");
+                    Self::print_help();
+                    return None;
+                }
+            },
             "info" => {
                 return Some(Command::Info);
             }
@@ -71,8 +71,8 @@ impl CommandParser {
 
     pub fn print_help() {
         println!("Available commands:");
-        println!("  ping <remote>");
-        println!("  send <remote> <message>");
+        println!("  connect <remote>");
+        println!("  send <message>");
         println!("  info");
     }
 }

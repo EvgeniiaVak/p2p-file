@@ -6,8 +6,8 @@ mod cli;
 mod network;
 
 pub enum Command {
-    Ping { remote: Multiaddr },
-    Send { remote: Multiaddr, message: String },
+    Connect { remote: Multiaddr },
+    Send { message: String },
     Info,
     Accept,
 }

@@ -4,7 +4,7 @@ use std::error::Error;
 use std::process::Command;
 
 struct Peer {
-    session: PtySession,
+    cli: PtySession,
     address: String,
 }
 
@@ -13,26 +13,44 @@ impl Peer {
         let cmd = Command::cargo_bin(env!("CARGO_PKG_NAME"))?;
         let mut session = spawn_command(cmd, Some(30000))?;
 
-        session.exp_string("Listening on")?;
-        let mut address = session.exp_string("Listening on")?;
-        address = address.replace("\"", "").trim().to_string();
+        session.exp_string("Available commands:")?;
+        session.exp_string("Listening on:")?;
+        session.send_line("info")?;
+        let mut address = session.exp_string("connect ")?;
+        address = address.trim().to_string();
 
         println!("Launched peer with address: {}", address);
-        Ok(Peer { session, address })
+        Ok(Peer {
+            cli: session,
+            address,
+        })
     }
 }
 
 #[test]
-fn ping() -> Result<(), Box<dyn Error>> {
-    let listening_peer = Peer::launch()?;
-    let mut pinning_peer = Peer::launch()?;
+fn connect() -> Result<(), Box<dyn Error>> {
+    let a = Peer::launch()?;
+    let mut b = Peer::launch()?;
 
-    let command = format!("ping {}", listening_peer.address.as_str());
+    let command = format!("connect {}", a.address.as_str());
+    b.cli.send_line(&command)?;
+    b.cli.exp_string("Connected")?;
 
-    pinning_peer.session.send_line(&command)?;
+    Ok(())
+}
 
-    pinning_peer.session.exp_string("Ping")?;
-    pinning_peer.session.exp_string("Pong")?;
+#[test]
+fn send() -> Result<(), Box<dyn Error>> {
+    let mut a = Peer::launch()?;
+    let mut b = Peer::launch()?;
+
+    let command = format!("connect {}", a.address.as_str());
+
+    b.cli.send_line(&command)?;
+
+    b.cli.exp_string("Connected")?;
+    b.cli.send_line("send hello")?;
+    a.cli.exp_string("hello")?;
 
     Ok(())
 }
