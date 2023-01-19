@@ -1,17 +1,23 @@
 use libp2p::futures::StreamExt;
-use libp2p::Transport;
-use std::error::Error;
+use libp2p::{request_response, Transport};
 
-use libp2p::floodsub::{self, FloodsubEvent};
-use libp2p::swarm::{keep_alive, NetworkBehaviour, SwarmEvent};
+use futures::{io, AsyncRead, AsyncWrite, AsyncWriteExt};
+use std::error::Error;
+use std::iter;
+
+use libp2p::core::upgrade::{read_length_prefixed, write_length_prefixed};
+use libp2p::request_response::{ProtocolName, ProtocolSupport};
+use libp2p::swarm::{keep_alive, NetworkBehaviour};
 use libp2p::{identity, PeerId, Swarm};
 use libp2p::{mplex, noise};
 
 use crate::Command;
 
+use async_trait::async_trait;
+
 pub struct Node {
     swarm: Swarm<Behaviour>,
-    floodsub_topic: floodsub::Topic,
+    connected_peer: Option<PeerId>,
 }
 
 impl Node {
@@ -33,55 +39,73 @@ impl Node {
                 .boxed()
         };
 
-        let floodsub_topic = floodsub::Topic::new("chat");
-        let mut behaviour = Behaviour {
+        let behaviour = Behaviour {
             keep_alive: keep_alive::Behaviour::default(),
-            floodsub: floodsub::Floodsub::new(id.clone()),
+            request_response: request_response::RequestResponse::new(
+                FileExchangeCodec(),
+                iter::once((FileExchangeProtocol(), ProtocolSupport::Full)),
+                request_response::RequestResponseConfig::default(),
+            ),
         };
-        behaviour.floodsub.subscribe(floodsub_topic.clone());
         let mut swarm = Swarm::with_tokio_executor(transport, behaviour, id);
         swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
 
         Ok(Node {
             swarm,
-            floodsub_topic,
+            connected_peer: None,
         })
     }
 
     pub async fn handle_event(&mut self) -> Result<String, Box<dyn Error>> {
+        use libp2p::request_response::RequestResponseEvent::*;
+        use libp2p::request_response::RequestResponseMessage::*;
+        use libp2p::swarm::SwarmEvent::*;
+
         match self.swarm.select_next_some().await {
-            SwarmEvent::Behaviour(BehaviourEvent::Floodsub(FloodsubEvent::Message(message))) => {
-                let mut short_addr = message.source.to_string();
-                short_addr.truncate(5);
+            Behaviour(BehaviourEvent::RequestResponse(Message {
+                peer,
+                message:
+                    Request {
+                        request_id,
+                        request,
+                        channel,
+                    },
+            })) => {
+                // TODO: wrap in an async?
+                // TODO: provide an actual file
+                let response: Vec<u8> = vec![1, 2, 3, 4, 5];
+                self.swarm
+                    .behaviour_mut()
+                    .request_response
+                    .send_response(channel, FileResponse(response))
+                    .expect("Failed to send response");
                 Ok(format!(
-                    "{:?}...: {}",
-                    short_addr,
-                    String::from_utf8_lossy(&message.data)
+                    "Sent file {request:?} \n\tto {peer}\n\trequest_id: {request_id}"
                 ))
             }
-            SwarmEvent::Behaviour(BehaviourEvent::Floodsub(FloodsubEvent::Subscribed {
-                peer_id,
-                topic,
-            })) => Ok(format!(
-                "Peer {:?} subscribed to topic {:?}",
-                peer_id, topic
-            )),
 
-            SwarmEvent::NewListenAddr { address, .. } => Ok(format!("Listening on: {address}")),
+            Behaviour(BehaviourEvent::RequestResponse(Message {
+                peer,
+                message: Response { response, .. },
+            })) => {
+                // TODO: wrap in an async?
+                // TODO: save the file
+                let file = response.0;
 
-            SwarmEvent::IncomingConnection {
+                Ok(format!("Received file {file:?} \n\tfrom {peer}"))
+            }
+
+            NewListenAddr { address, .. } => Ok(format!("Listening on: {address}")),
+
+            IncomingConnection {
                 local_addr,
                 send_back_addr,
             } => Ok(format!(
                 "Incoming connection to: {local_addr}\n\tfrom: {send_back_addr}"
             )),
 
-            SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-                self.swarm
-                    .behaviour_mut()
-                    .floodsub
-                    .add_node_to_partial_view(peer_id);
-
+            ConnectionEstablished { peer_id, .. } => {
+                self.connected_peer = Some(peer_id);
                 Ok(format!("Connected: {peer_id}"))
             }
             other => Ok(format!("Unhandled event:\n{other:?}")),
@@ -89,40 +113,128 @@ impl Node {
     }
 
     pub fn handle_command(&mut self, command: Command) -> Result<Option<String>, Box<dyn Error>> {
-        let result = match command {
+        match command {
             Command::Connect { remote } => {
                 self.swarm.dial(remote)?;
-                None
+                Ok(None)
             }
-            Command::Send { message } => {
-                self.swarm
-                    .behaviour_mut()
-                    .floodsub
-                    .publish(self.floodsub_topic.clone(), message.as_bytes());
-                None
-            }
+
             Command::Info => {
                 let peer_id = self.swarm.local_peer_id().to_string();
                 let address = self.swarm.listeners().last().unwrap().to_string();
                 let address = format!("{address}/p2p/{peer_id}");
 
                 let mut info = String::new();
-                info.push_str("Other peers can send a message to you with:\n");
-                info.push_str(&format!("  connect {address}\n"));
-                info.push_str(&format!("  send MY_MESSAGE"));
-                Some(info)
+                info.push_str("Other peers can connect and request a file:\n");
+                info.push_str(&format!("connect {address}\n"));
+                info.push_str("request /path/to/file");
+                Ok(Some(info))
             }
-            Command::Accept => {
-                todo!()
-            }
-        };
 
-        Ok(result)
+            Command::Request { file_path } => match self.connected_peer {
+                Some(peer) => {
+                    let request_id = self
+                        .swarm
+                        .behaviour_mut()
+                        .request_response
+                        .send_request(&peer, FileRequest(file_path));
+                    Ok(Some(format!("Sent request {request_id:?} to {peer}")))
+                }
+                None => Err("No peer connected".into()),
+            },
+        }
     }
 }
 
 #[derive(NetworkBehaviour)]
 struct Behaviour {
     keep_alive: keep_alive::Behaviour,
-    floodsub: floodsub::Floodsub,
+    request_response: request_response::RequestResponse<FileExchangeCodec>,
+}
+
+// TODO: remove empty tuples
+#[derive(Debug, Clone)]
+struct FileExchangeProtocol();
+#[derive(Clone)]
+struct FileExchangeCodec();
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FileRequest(String);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileResponse(Vec<u8>);
+
+impl ProtocolName for FileExchangeProtocol {
+    fn protocol_name(&self) -> &[u8] {
+        "/file-exchange/1".as_bytes()
+    }
+}
+
+#[async_trait]
+impl request_response::RequestResponseCodec for FileExchangeCodec {
+    type Protocol = FileExchangeProtocol;
+    type Request = FileRequest;
+    type Response = FileResponse;
+
+    async fn read_request<T>(
+        &mut self,
+        _: &FileExchangeProtocol,
+        io: &mut T,
+    ) -> io::Result<Self::Request>
+    where
+        T: AsyncRead + Unpin + Send,
+    {
+        let vec = read_length_prefixed(io, 1_000_000).await?;
+
+        if vec.is_empty() {
+            return Err(io::ErrorKind::UnexpectedEof.into());
+        }
+
+        Ok(FileRequest(String::from_utf8(vec).unwrap()))
+    }
+
+    async fn read_response<T>(
+        &mut self,
+        _: &FileExchangeProtocol,
+        io: &mut T,
+    ) -> io::Result<Self::Response>
+    where
+        T: AsyncRead + Unpin + Send,
+    {
+        let vec = read_length_prefixed(io, 500_000_000).await?;
+
+        if vec.is_empty() {
+            return Err(io::ErrorKind::UnexpectedEof.into());
+        }
+
+        Ok(FileResponse(vec))
+    }
+
+    async fn write_request<T>(
+        &mut self,
+        _: &FileExchangeProtocol,
+        io: &mut T,
+        FileRequest(data): FileRequest,
+    ) -> io::Result<()>
+    where
+        T: AsyncWrite + Unpin + Send,
+    {
+        write_length_prefixed(io, data).await?;
+        io.close().await?;
+
+        Ok(())
+    }
+
+    async fn write_response<T>(
+        &mut self,
+        _: &FileExchangeProtocol,
+        io: &mut T,
+        FileResponse(data): FileResponse,
+    ) -> io::Result<()>
+    where
+        T: AsyncWrite + Unpin + Send,
+    {
+        write_length_prefixed(io, data).await?;
+        io.close().await?;
+
+        Ok(())
+    }
 }

@@ -7,9 +7,8 @@ mod network;
 
 pub enum Command {
     Connect { remote: Multiaddr },
-    Send { message: String },
     Info,
-    Accept,
+    Request { file_path: String },
 }
 
 pub async fn run() -> Result<(), Box<dyn Error>> {

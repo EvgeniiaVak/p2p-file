@@ -28,8 +28,8 @@ impl CommandParser {
 
     fn parse(input: String) -> Option<Command> {
         match input.trim() {
-            ping_command if input.starts_with("connect") => {
-                let remote = ping_command
+            connect_command if input.starts_with("connect") => {
+                let remote = connect_command
                     .split_whitespace()
                     .nth(1)
                     .expect("Missing remote address to ping.");
@@ -43,36 +43,33 @@ impl CommandParser {
                     }
                 }
             }
-            send_command if input.starts_with("send") => match send_command.split_once(" ") {
-                Some((_, message)) => Some(Command::Send {
-                    message: message.to_string(),
-                }),
-                None => {
-                    println!("Unexpected command.");
-                    Self::print_help();
-                    return None;
-                }
-            },
-            "info" => {
-                return Some(Command::Info);
+
+            request_command if input.starts_with("request") => {
+                let file_path = request_command
+                    .split_once(' ')
+                    .expect("Missing file path")
+                    .1;
+
+                Some(Command::Request {
+                    file_path: file_path.to_string(),
+                })
             }
-            "y" => {
-                // TODO: do not send accept command without a pending request
-                return Some(Command::Accept);
-            }
+
+            "info" => Some(Command::Info),
 
             unknown => {
                 println!("\nUnknown command: {unknown}");
                 Self::print_help();
-                return None;
+                None
             }
         }
     }
 
+    // TODO: make a single source of truth for commands somewhere
     pub fn print_help() {
         println!("Available commands:");
         println!("  connect <remote>");
-        println!("  send <message>");
+        println!("  request <message>");
         println!("  info");
     }
 }
